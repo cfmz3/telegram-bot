@@ -47,11 +47,28 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 threading.Thread(target=lambda: HTTPServer(('0.0.0.0', int(os.environ.get('PORT',8080))), Handler).serve_forever(), daemon=True).start()
 
+_db_cache = None
+_db_cache_time = 0
 def load_db():
-    return json.load(open(DB_FILE)) if os.path.exists(DB_FILE) else {}
+    global _db_cache, _db_cache_time
+    if _db_cache is not None and time.time() - _db_cache_time < 5:
+        return _db_cache
+    _db_cache = json.load(open(DB_FILE)) if os.path.exists(DB_FILE) else {}
+    _db_cache_time = time.time()
+    return _db_cache
 
+_pending_save = False
+_last_save = 0
 def save_db(data):
-    json.dump(data, open(DB_FILE, 'w'), indent=2, ensure_ascii=False)
+    global _db_cache, _pending_save, _last_save
+    _db_cache = data
+    now = time.time()
+    if now - _last_save > 10:
+        json.dump(data, open(DB_FILE, 'w'), indent=2, ensure_ascii=False)
+        _last_save = now
+        _pending_save = False
+    else:
+        _pending_save = True
 
 def get_accounts(uid):
     return load_db().get(str(uid), {}).get('accounts', {})
@@ -136,10 +153,10 @@ async def spam_loop(session_str, uid, acc_name):
                 if task_id not in active_tasks or global_stopped: return
                 try: await client.send_message(chat, text)
                 except: pass
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
             for _ in range(delay // 5):
                 if task_id not in active_tasks or global_stopped: return
-                await asyncio.sleep(5)
+                await asyncio.sleep(3)
     except Exception as e:
         logger.error(f"Крах: {e}")
     finally:
@@ -639,8 +656,18 @@ async def restore():
                     active_tasks[f"{uid}_{an}"]=True
                     asyncio.create_task(spam_loop(a['session'], uid, an))
 
+async def save_loop():
+    global _pending_save, _db_cache, _last_save
+    while True:
+        await asyncio.sleep(15)
+        if _pending_save and _db_cache is not None:
+            json.dump(_db_cache, open(DB_FILE, 'w'), indent=2, ensure_ascii=False)
+            _last_save = time.time()
+            _pending_save = False
+
 async def main():
     await restore()
+    asyncio.create_task(save_loop())
     logger.info("Бот запущен!")
     await bot.polling(non_stop=True)
 
