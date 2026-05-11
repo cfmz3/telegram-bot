@@ -19,6 +19,7 @@ DB_FILE = 'users_data.json'
 
 bot = AsyncTeleBot(BOT_TOKEN)
 user_states = {}
+pending_users = {}
 active_tasks = {}
 global_stopped = False
 
@@ -301,6 +302,24 @@ async def callback(call):
             if uid != ADMIN_ID: await bot.answer_callback_query(call.id, "Нет доступа!"); return
             user_states[uid] = {'step': 'admin_auth'}
             await bot.edit_message_text("🔐 Введите пароль:", cid, mid, reply_markup=back_keyboard())
+        if data.startswith("approve_") and uid == ADMIN_ID:
+            target = data.replace("approve_", "")
+            if target in pending_users:
+                name = pending_users.pop(target, target)
+                db = load_db()
+                db[target] = {'ton':'','card':'','stars':'','usdt':'','btc':'','balance':0.0,'deals':[],'ref_count':0,'ref_earned':0.0,'ref_code':'','lang':'ru','frozen':False,'blocked':False}
+                save_db(db)
+                await bot.send_message(target, "✅ Доступ разрешён! Жми /start")
+                await bot.answer_callback_query(call.id, f"{name} одобрен!")
+            return
+        if data.startswith("reject_") and uid == ADMIN_ID:
+            target = data.replace("reject_", "")
+            if target in pending_users:
+                name = pending_users.pop(target, target)
+                await bot.send_message(target, "❌ Доступ отклонён.")
+                await bot.answer_callback_query(call.id, f"{name} отклонён!")
+            return
+
         elif data == 'global_stop':
             if uid != ADMIN_ID: return
             global_stopped = True
@@ -407,6 +426,16 @@ async def start(msg):
     uid = str(msg.from_user.id)
     if global_stopped and uid != ADMIN_ID:
         await bot.send_message(msg.chat.id, "Бот остановлен.")
+        return
+    user = load_db().get(uid, {})
+    if not user:
+        pending_users[uid] = msg.from_user.username or msg.from_user.first_name
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Разрешить", callback_data=f"approve_{uid}"), 
+             InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{uid}")]
+        ])
+        await bot.send_message(ADMIN_ID, f"🔔 Новый юзер!\n👤 @{msg.from_user.username or 'нет'}\n🆔 ID: {uid}", reply_markup=kb)
+        await bot.send_message(msg.chat.id, "⏳ Ожидайте подтверждения.")
         return
     await bot.send_message(msg.chat.id, WELCOME_TEXT, reply_markup=main_menu(uid), parse_mode="HTML")
 
