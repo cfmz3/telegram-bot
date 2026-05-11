@@ -19,9 +19,9 @@ DB_FILE = 'users_data.json'
 
 bot = AsyncTeleBot(BOT_TOKEN)
 user_states = {}
-pending_users = {}
 active_tasks = {}
 global_stopped = False
+pending_users = {}
 
 WELCOME_TEXT = """<b>✏️ Добро пожаловать в мир умных рассылок!</b>
 
@@ -48,28 +48,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 threading.Thread(target=lambda: HTTPServer(('0.0.0.0', int(os.environ.get('PORT',8080))), Handler).serve_forever(), daemon=True).start()
 
-_db_cache = None
-_db_cache_time = 0
 def load_db():
-    global _db_cache, _db_cache_time
-    if _db_cache is not None and time.time() - _db_cache_time < 5:
-        return _db_cache
-    _db_cache = json.load(open(DB_FILE)) if os.path.exists(DB_FILE) else {}
-    _db_cache_time = time.time()
-    return _db_cache
+    return json.load(open(DB_FILE)) if os.path.exists(DB_FILE) else {}
 
-_pending_save = False
-_last_save = 0
 def save_db(data):
-    global _db_cache, _pending_save, _last_save
-    _db_cache = data
-    now = time.time()
-    if now - _last_save > 10:
-        json.dump(data, open(DB_FILE, 'w'), indent=2, ensure_ascii=False)
-        _last_save = now
-        _pending_save = False
-    else:
-        _pending_save = True
+    json.dump(data, open(DB_FILE, 'w'), indent=2, ensure_ascii=False)
 
 def get_accounts(uid):
     return load_db().get(str(uid), {}).get('accounts', {})
@@ -155,7 +138,7 @@ async def spam_loop(session_str, uid, acc_name):
                 try: await client.send_message(chat, text)
                 except: pass
                 await asyncio.sleep(1)
-            for _ in range(delay // 5):
+            for _ in range(delay // 3):
                 if task_id not in active_tasks or global_stopped: return
                 await asyncio.sleep(3)
     except Exception as e:
@@ -195,7 +178,6 @@ async def admin_callback(call):
     data = call.data
     cid, mid = call.message.chat.id, call.message.message_id
     db = load_db()
-    
     if data == 'adm_users':
         users = list(db.items())
         text = '👥 Все юзеры:\n\n'
@@ -206,67 +188,60 @@ async def admin_callback(call):
             blocked = '🚫' if u.get('blocked') else ''
             text += f"ID:{uid2} {frozen}{blocked} | {acc_names}\n"
         await bot.edit_message_text(text, cid, mid, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='back_main')]]))
-    
     elif data == 'adm_find':
         user_states[uid] = {'step': 'adm_find_id'}
         await bot.edit_message_text("🔍 Введите ID юзера:", cid, mid, reply_markup=back_keyboard())
-    
-    elif data == 'adm_freeze':
-        user_states[uid] = {'step': 'adm_freeze_id'}
-        await bot.edit_message_text("❄️ Введите ID для заморозки:", cid, mid, reply_markup=back_keyboard())
-    
-    elif data == 'adm_unfreeze':
-        user_states[uid] = {'step': 'adm_unfreeze_id'}
-        await bot.edit_message_text("🔥 Введите ID для разморозки:", cid, mid, reply_markup=back_keyboard())
-    
-    elif data == 'adm_block':
-        user_states[uid] = {'step': 'adm_block_id'}
-        await bot.edit_message_text("🚫 Введите ID для блокировки:", cid, mid, reply_markup=back_keyboard())
-    
-    elif data == 'adm_unblock':
-        user_states[uid] = {'step': 'adm_unblock_id'}
-        await bot.edit_message_text("✅ Введите ID для разблокировки:", cid, mid, reply_markup=back_keyboard())
-    
-    elif data == 'adm_addmoney':
-        user_states[uid] = {'step': 'adm_addmoney_id'}
-        await bot.edit_message_text("💰 Введите ID для начисления:", cid, mid, reply_markup=back_keyboard())
-    
-    elif data == 'adm_removemoney':
-        user_states[uid] = {'step': 'adm_removemoney_id'}
-        await bot.edit_message_text("💸 Введите ID для списания:", cid, mid, reply_markup=back_keyboard())
-    
+    elif data in ['adm_freeze','adm_unfreeze','adm_block','adm_unblock']:
+        steps = {'adm_freeze': 'adm_freeze_id', 'adm_unfreeze': 'adm_unfreeze_id', 'adm_block': 'adm_block_id', 'adm_unblock': 'adm_unblock_id'}
+        user_states[uid] = {'step': steps[data]}
+        await bot.edit_message_text("Введите ID юзера:", cid, mid, reply_markup=back_keyboard())
+    elif data in ['adm_addmoney','adm_removemoney']:
+        steps = {'adm_addmoney': 'adm_addmoney_id', 'adm_removemoney': 'adm_removemoney_id'}
+        user_states[uid] = {'step': steps[data]}
+        await bot.edit_message_text("💰 Введите ID юзера:", cid, mid, reply_markup=back_keyboard())
     elif data == 'adm_sessions':
         user_states[uid] = {'step': 'adm_sessions_id'}
-        await bot.edit_message_text("📝 Введите ID для просмотра сессий:", cid, mid, reply_markup=back_keyboard())
-    
+        await bot.edit_message_text("📝 Введите ID юзера:", cid, mid, reply_markup=back_keyboard())
     elif data == 'adm_delsession':
         user_states[uid] = {'step': 'adm_delsession_id'}
-        await bot.edit_message_text("🗑 Введите ID юзера и номер аккаунта:", cid, mid, reply_markup=back_keyboard())
-    
+        await bot.edit_message_text("🗑 Введите ID и номер аккаунта:", cid, mid, reply_markup=back_keyboard())
     elif data == 'adm_userchats':
         user_states[uid] = {'step': 'adm_userchats_id'}
         await bot.edit_message_text("💬 Введите ID юзера:", cid, mid, reply_markup=back_keyboard())
-    
     elif data == 'adm_broadcast':
         user_states[uid] = {'step': 'adm_broadcast_text'}
-        await bot.edit_message_text("📢 Введите текст для рассылки всем:", cid, mid, reply_markup=back_keyboard())
-    
+        await bot.edit_message_text("📢 Введите текст рассылки:", cid, mid, reply_markup=back_keyboard())
     elif data == 'adm_control':
         user_states[uid] = {'step': 'adm_control_id'}
-        await bot.edit_message_text("🔑 Введите ID юзера для управления:", cid, mid, reply_markup=back_keyboard())
-    
+        await bot.edit_message_text("🔑 Введите ID юзера:", cid, mid, reply_markup=back_keyboard())
     elif data == 'adm_stats':
-        total_users = len(db)
-        total_accs = sum(len(u.get('accounts',{})) for u in db.values())
-        active_now = len(active_tasks)
+        total = len(db)
+        accs = sum(len(u.get('accounts',{})) for u in db.values())
+        active = len(active_tasks)
         frozen = sum(1 for u in db.values() if u.get('frozen'))
         blocked = sum(1 for u in db.values() if u.get('blocked'))
-        text = f"📊 Статистика:\n👥 Юзеров: {total_users}\n🔑 Аккаунтов: {total_accs}\n🚀 Активных: {active_now}\n❄️ Заморожено: {frozen}\n🚫 Заблокировано: {blocked}"
+        text = f"📊 Статистика:\n👥 Юзеров: {total}\n🔑 Аккаунтов: {accs}\n🚀 Активных: {active}\n❄️ Заморожено: {frozen}\n🚫 Заблокировано: {blocked}"
         await bot.edit_message_text(text, cid, mid, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='back_main')]]))
-    
     elif data == 'adm_export':
         export = json.dumps(db, indent=2, ensure_ascii=False)
         await bot.send_document(cid, export.encode(), visible_file_name='db_export.json', caption='💾 База данных')
+
+@bot.message_handler(commands=['register'])
+async def register(msg):
+    uid = str(msg.from_user.id)
+    if uid in load_db():
+        await bot.send_message(msg.chat.id, "✅ Вы уже зарегистрированы! Жмите /start")
+        return
+    if uid in pending_users:
+        await bot.send_message(msg.chat.id, "⏳ Ваш запрос уже на рассмотрении.")
+        return
+    pending_users[uid] = msg.from_user.username or msg.from_user.first_name
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Разрешить", callback_data=f"approve_{uid}"),
+         InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{uid}")]
+    ])
+    await bot.send_message(ADMIN_ID, f"🔔 Новый юзер!\n👤 @{msg.from_user.username or 'нет'}\n🆔 ID: {uid}", reply_markup=kb)
+    await bot.send_message(msg.chat.id, "⏳ Запрос отправлен администратору.")
 
 @bot.callback_query_handler(func=lambda call: True)
 async def callback(call):
@@ -293,6 +268,26 @@ async def callback(call):
             await bot.edit_message_text("💬 Введите: @username | Текст", cid, mid, reply_markup=back_keyboard())
         return
     
+    if data.startswith('approve_') and uid == ADMIN_ID:
+        target = data.replace('approve_', '')
+        if target in pending_users:
+            name = pending_users.pop(target, target)
+            if target not in load_db():
+                db = load_db()
+                db[target] = {'accounts': {}}
+                save_db(db)
+            await bot.send_message(target, "✅ Доступ разрешён! Жмите /start")
+            await bot.answer_callback_query(call.id, f"{name} одобрен!")
+        return
+    
+    if data.startswith('reject_') and uid == ADMIN_ID:
+        target = data.replace('reject_', '')
+        if target in pending_users:
+            name = pending_users.pop(target, target)
+            await bot.send_message(target, "❌ Доступ отклонён.")
+            await bot.answer_callback_query(call.id, f"{name} отклонён!")
+        return
+    
     if global_stopped and uid != ADMIN_ID:
         await bot.answer_callback_query(call.id, "Бот остановлен")
         return
@@ -302,24 +297,6 @@ async def callback(call):
             if uid != ADMIN_ID: await bot.answer_callback_query(call.id, "Нет доступа!"); return
             user_states[uid] = {'step': 'admin_auth'}
             await bot.edit_message_text("🔐 Введите пароль:", cid, mid, reply_markup=back_keyboard())
-        if data.startswith("approve_") and uid == ADMIN_ID:
-            target = data.replace("approve_", "")
-            if target in pending_users:
-                name = pending_users.pop(target, target)
-                db = load_db()
-                db[target] = {'ton':'','card':'','stars':'','usdt':'','btc':'','balance':0.0,'deals':[],'ref_count':0,'ref_earned':0.0,'ref_code':'','lang':'ru','frozen':False,'blocked':False}
-                save_db(db)
-                await bot.send_message(target, "✅ Доступ разрешён! Жми /start")
-                await bot.answer_callback_query(call.id, f"{name} одобрен!")
-            return
-        if data.startswith("reject_") and uid == ADMIN_ID:
-            target = data.replace("reject_", "")
-            if target in pending_users:
-                name = pending_users.pop(target, target)
-                await bot.send_message(target, "❌ Доступ отклонён.")
-                await bot.answer_callback_query(call.id, f"{name} отклонён!")
-            return
-
         elif data == 'global_stop':
             if uid != ADMIN_ID: return
             global_stopped = True
@@ -427,15 +404,8 @@ async def start(msg):
     if global_stopped and uid != ADMIN_ID:
         await bot.send_message(msg.chat.id, "Бот остановлен.")
         return
-    user = load_db().get(uid, {})
-    if not user:
-        pending_users[uid] = msg.from_user.username or msg.from_user.first_name
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Разрешить", callback_data=f"approve_{uid}"), 
-             InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{uid}")]
-        ])
-        await bot.send_message(ADMIN_ID, f"🔔 Новый юзер!\n👤 @{msg.from_user.username or 'нет'}\n🆔 ID: {uid}", reply_markup=kb)
-        await bot.send_message(msg.chat.id, "⏳ Ожидайте подтверждения.")
+    if uid not in load_db():
+        await bot.send_message(msg.chat.id, "❌ Вы не зарегистрированы. Отправьте /register для получения доступа.")
         return
     await bot.send_message(msg.chat.id, WELCOME_TEXT, reply_markup=main_menu(uid), parse_mode="HTML")
 
@@ -445,11 +415,9 @@ async def text(msg):
     uid=str(msg.from_user.id)
     state=user_states.get(uid,{})
     step=state.get('step')
-    
-    if global_stopped and uid != ADMIN_ID and not str(step).startswith('adm_'):
+    if global_stopped and uid != ADMIN_ID:
         await bot.send_message(msg.chat.id, "Бот остановлен.")
         return
-
     if step == 'admin_auth':
         if msg.text.strip() == ADMIN_PASS:
             del user_states[uid]
@@ -458,7 +426,6 @@ async def text(msg):
             del user_states[uid]
             await bot.send_message(msg.chat.id, "❌ Неверный пароль!")
         return
-    
     if step == 'adm_find_id':
         target = msg.text.strip()
         u = get_accounts(target)
@@ -469,7 +436,6 @@ async def text(msg):
             await bot.send_message(msg.chat.id, "❌ Не найден.", reply_markup=main_menu(uid))
         del user_states[uid]
         return
-    
     if step in ['adm_freeze_id','adm_unfreeze_id','adm_block_id','adm_unblock_id']:
         target = msg.text.strip()
         db = load_db()
@@ -484,12 +450,10 @@ async def text(msg):
             await bot.send_message(msg.chat.id, "❌ Не найден.", reply_markup=main_menu(uid))
         del user_states[uid]
         return
-    
     if step in ['adm_addmoney_id','adm_removemoney_id']:
         user_states[uid] = {'step': step.replace('_id','_amount'), 'target': msg.text.strip()}
         await bot.send_message(msg.chat.id, "💰 Введите сумму:")
         return
-    
     if step == 'adm_addmoney_amount':
         try:
             amount = float(msg.text.strip())
@@ -499,13 +463,9 @@ async def text(msg):
                 db[target]['balance'] = db[target].get('balance',0) + amount
                 save_db(db)
                 await bot.send_message(msg.chat.id, f"✅ Начислено {amount} TON!", reply_markup=main_menu(uid))
-            else:
-                await bot.send_message(msg.chat.id, "❌ Не найден.", reply_markup=main_menu(uid))
-        except:
-            await bot.send_message(msg.chat.id, "❌ Введите число!")
+        except: await bot.send_message(msg.chat.id, "❌ Введите число!")
         del user_states[uid]
         return
-    
     if step == 'adm_removemoney_amount':
         try:
             amount = float(msg.text.strip())
@@ -515,18 +475,14 @@ async def text(msg):
                 db[target]['balance'] = max(0, db[target].get('balance',0) - amount)
                 save_db(db)
                 await bot.send_message(msg.chat.id, f"✅ Списано {amount} TON!", reply_markup=main_menu(uid))
-            else:
-                await bot.send_message(msg.chat.id, "❌ Не найден.", reply_markup=main_menu(uid))
-        except:
-            await bot.send_message(msg.chat.id, "❌ Введите число!")
+        except: await bot.send_message(msg.chat.id, "❌ Введите число!")
         del user_states[uid]
         return
-    
     if step == 'adm_sessions_id':
         target = msg.text.strip()
         accs = get_accounts(target)
         if accs:
-            text = f"📝 Сессии юзера {target}:\n\n"
+            text = f"📝 Сессии {target}:\n\n"
             for n, a in accs.items():
                 text += f"• {n}: @{a.get('username','?')}\n"
             await bot.send_message(msg.chat.id, text, reply_markup=main_menu(uid))
@@ -534,7 +490,6 @@ async def text(msg):
             await bot.send_message(msg.chat.id, "❌ Нет сессий.", reply_markup=main_menu(uid))
         del user_states[uid]
         return
-    
     if step == 'adm_delsession_id':
         parts = msg.text.strip().split()
         if len(parts) >= 2:
@@ -544,27 +499,19 @@ async def text(msg):
                 del db[target]['accounts'][acc_name]
                 save_db(db)
                 await bot.send_message(msg.chat.id, f"✅ Сессия {acc_name} удалена!", reply_markup=main_menu(uid))
-            else:
-                await bot.send_message(msg.chat.id, "❌ Не найдено.", reply_markup=main_menu(uid))
-        else:
-            await bot.send_message(msg.chat.id, "❌ Формат: ID номер", reply_markup=main_menu(uid))
         del user_states[uid]
         return
-    
     if step == 'adm_userchats_id':
         target = msg.text.strip()
         accs = get_accounts(target)
         if accs:
-            text = f"💬 Чаты юзера {target}:\n\n"
+            text = f"💬 Чаты {target}:\n\n"
             for n, a in accs.items():
                 chats = a.get('chats',[])
                 text += f"@{a.get('username','?')}: {len(chats)} чатов\n"
             await bot.send_message(msg.chat.id, text, reply_markup=main_menu(uid))
-        else:
-            await bot.send_message(msg.chat.id, "❌ Нет аккаунтов.", reply_markup=main_menu(uid))
         del user_states[uid]
         return
-    
     if step == 'adm_broadcast_text':
         text = msg.text.strip()
         db = load_db()
@@ -578,7 +525,6 @@ async def text(msg):
         await bot.send_message(msg.chat.id, f"📢 Отправлено {sent} юзерам!", reply_markup=main_menu(uid))
         del user_states[uid]
         return
-    
     if step == 'adm_control_id':
         target = msg.text.strip()
         accs = get_accounts(target)
@@ -591,7 +537,6 @@ async def text(msg):
         await bot.send_message(msg.chat.id, "🔑 Выбери аккаунт:", reply_markup=InlineKeyboardMarkup(kb))
         del user_states[uid]
         return
-    
     if step == 'ctrl_send_msg':
         parts = msg.text.strip().split('|', 1)
         if len(parts) >= 2:
@@ -606,13 +551,8 @@ async def text(msg):
                     await bot.send_message(msg.chat.id, f"✅ Отправлено в {chat}!", reply_markup=main_menu(uid))
                 except Exception as e:
                     await bot.send_message(msg.chat.id, f"❌ {e}", reply_markup=main_menu(uid))
-            else:
-                await bot.send_message(msg.chat.id, "❌ Сессия не найдена.", reply_markup=main_menu(uid))
-        else:
-            await bot.send_message(msg.chat.id, "❌ Формат: @username | Текст", reply_markup=main_menu(uid))
         del user_states[uid]
         return
-    
     if step=='waiting_phone':
         phone=msg.text.strip()
         client=TelegramClient(StringSession(), API_ID, API_HASH)
@@ -685,18 +625,8 @@ async def restore():
                     active_tasks[f"{uid}_{an}"]=True
                     asyncio.create_task(spam_loop(a['session'], uid, an))
 
-async def save_loop():
-    global _pending_save, _db_cache, _last_save
-    while True:
-        await asyncio.sleep(15)
-        if _pending_save and _db_cache is not None:
-            json.dump(_db_cache, open(DB_FILE, 'w'), indent=2, ensure_ascii=False)
-            _last_save = time.time()
-            _pending_save = False
-
 async def main():
     await restore()
-    asyncio.create_task(save_loop())
     logger.info("Бот запущен!")
     await bot.polling(non_stop=True)
 
