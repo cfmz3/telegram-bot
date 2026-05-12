@@ -78,8 +78,8 @@ def main_menu(uid):
         kb.append([InlineKeyboardButton("▶️ ЗАПУСТИТЬ", callback_data='start_spam'), InlineKeyboardButton("⏹ ОСТАНОВИТЬ", callback_data='stop_spam')])
         kb.append([InlineKeyboardButton("📊 Статус", callback_data='status')])
     if acc_count > 0:
-        kb.append([InlineKeyboardButton(f"👤 Аккаунты ({acc_count}/3)", callback_data='accounts_list')])
-    if acc_count < 3:
+        kb.append([InlineKeyboardButton(f"👤 Аккаунты ({acc_count})", callback_data='accounts_list')])
+    if True:  # безлимит
         kb.append([InlineKeyboardButton("📱 ВОЙТИ ПО НОМЕРУ", callback_data='login_phone')])
     if uid == ADMIN_ID:
         kb.append([InlineKeyboardButton("👑 АДМИН-ПАНЕЛЬ", callback_data='admin_panel')])
@@ -307,7 +307,7 @@ async def callback(call):
             global_stopped = False
             await bot.edit_message_text("✅ Бот работает", cid, mid, reply_markup=main_menu(uid))
         elif data == 'login_phone':
-            if len(get_accounts(uid)) >= 3: await bot.answer_callback_query(call.id, "Максимум 3!"); return
+            pass  # безлимит
             user_states[uid] = {'step': 'waiting_phone', 'acc_num': len(get_accounts(uid)) + 1}
             await bot.edit_message_text("📱 Номер (с +):", cid, mid, reply_markup=back_keyboard())
         elif data.startswith('c') and len(data)==2 and data[1].isdigit():
