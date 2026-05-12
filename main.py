@@ -108,7 +108,7 @@ def admin_panel():
         [InlineKeyboardButton("💬 Чаты юзера", callback_data='adm_userchats'), InlineKeyboardButton("📢 Рассылка всем", callback_data='adm_broadcast')],
         [InlineKeyboardButton("🔑 Управление акк", callback_data='adm_control'), InlineKeyboardButton("📊 Статистика", callback_data='adm_stats')],
         [InlineKeyboardButton("💾 Экспорт базы", callback_data='adm_export')],
-        [InlineKeyboardButton("🔙 Назад в админку", callback_data="adm_back")]
+        [InlineKeyboardButton("🔙 В админку", callback_data="adm_back"), InlineKeyboardButton("🏠 В меню", callback_data="back_main")]
     ])
 
 def chats_menu_keyboard(chats):
@@ -154,7 +154,7 @@ async def finish_login(uid, client, chat_id, acc_num):
     save_db(db)
     user_states[str(uid)] = {'current_account': acc_name}
     await client.disconnect()
-    await bot.send_message(chat_id, f"✅ Вошёл как @{me.username or me.first_name}!", reply_markup=main_menu(uid))
+    await bot.send_message(chat_id, f"✅ Вошёл как @{me.username or me.first_name}!", reply_markup=admin_panel())
 
 async def process_code(uid, chat_id, msg_id, state):
     code = state.get('entered_code', '')
@@ -301,7 +301,7 @@ async def callback(call):
             if uid != ADMIN_ID: return
             global_stopped = True
             for k in list(active_tasks.keys()): del active_tasks[k]
-            await bot.edit_message_text("🛑 Бот остановлен", cid, mid, reply_markup=main_menu(uid))
+            await bot.edit_message_text("🛑 Бот остановлен", cid, mid, reply_markup=admin_panel())
         elif data == 'global_resume':
             if uid != ADMIN_ID: return
             global_stopped = False
@@ -561,7 +561,7 @@ async def text(msg):
             user_states[uid]={**state,'step':'entering_code','client':client,'phone':phone,'phone_code_hash':sent.phone_code_hash,'entered_code':''}
             await bot.send_message(msg.chat.id,"🔢 Код кнопками:",reply_markup=code_keyboard())
         except Exception as e:
-            await bot.send_message(msg.chat.id,f"❌ {e}",reply_markup=main_menu(uid))
+            await bot.send_message(msg.chat.id,f"❌ {e}",reply_markup=admin_panel())
             del user_states[uid]
         return
     elif step=='waiting_2fa':
