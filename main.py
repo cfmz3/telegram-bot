@@ -23,20 +23,18 @@ active_tasks = {}
 global_stopped = False
 pending_users = {}
 
-WELCOME_TEXT = """<b>✏️ Добро пожаловать в мир умных рассылок!</b>
+WELCOME_TEXT = """<b>Добро пожаловать в мир умных рассылок!</b>
+<i>Приветствуем тебя, дорогой пользователь!</i>
+<b>Безопасность прежде всего</b>
+- <b>Полная защита:</b> Наш софт НЕ ворует сессии.
+- <b>Прозрачность:</b> Бот создан для легальной автоматизации.
+<b>Команда создателей</b>
+- <b>Разработчик:</b> @cf_mz
+- <b>PR-стратег:</b> @ilialg
+Желаем продуктивной работы!
+<i>Начинай прямо сейчас!</i>"""
 
-<i>Приветствуем тебя, дорогой пользователь! 👋</i>
-
-<b>📚 Безопасность прежде всего</b>
-- <b>Полная защита:</b> Наш софт НЕ ворует сессии. 🔒
-- <b>Прозрачность:</b> Бот создан для легальной автоматизации. ✅
-
-<b>📚 Команда создателей</b>
-- <b>Разработчик:</b> @cf_mz 💻
-- <b>PR-стратег:</b> @ilialg 📈
-
-Желаем продуктивной работы! 🎯
-<i>Начинай прямо сейчас!</i> 🌟🚀"""
+REGISTER_TEXT = "📨 Запрос отправлен владельцу\n\n🔐 Вы получите доступ к боту после оплаты подписки.\n💬 Обращайтесь к @cf_mz\n\n💎 Принимаем любые валюты"
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -79,8 +77,7 @@ def main_menu(uid):
         kb.append([InlineKeyboardButton("📊 Статус", callback_data='status')])
     if acc_count > 0:
         kb.append([InlineKeyboardButton(f"👤 Аккаунты ({acc_count})", callback_data='accounts_list')])
-    if True:  # безлимит
-        kb.append([InlineKeyboardButton("📱 ВОЙТИ ПО НОМЕРУ", callback_data='login_phone')])
+    kb.append([InlineKeyboardButton("📱 ВОЙТИ ПО НОМЕРУ", callback_data='login_phone')])
     if uid == ADMIN_ID:
         kb.append([InlineKeyboardButton("👑 АДМИН-ПАНЕЛЬ", callback_data='admin_panel')])
         if global_stopped:
@@ -111,7 +108,7 @@ def admin_panel():
         [InlineKeyboardButton("💬 Чаты юзера", callback_data='adm_userchats'), InlineKeyboardButton("📢 Рассылка всем", callback_data='adm_broadcast')],
         [InlineKeyboardButton("🔑 Управление акк", callback_data='adm_control'), InlineKeyboardButton("📊 Статистика", callback_data='adm_stats')],
         [InlineKeyboardButton("💾 Экспорт базы", callback_data='adm_export')],
-        [InlineKeyboardButton("🔙 Выход", callback_data='back_main')]
+        [InlineKeyboardButton("🔙 Назад в админку", callback_data="adm_back")]
     ])
 
 def chats_menu_keyboard(chats):
@@ -157,7 +154,7 @@ async def finish_login(uid, client, chat_id, acc_num):
     save_db(db)
     user_states[str(uid)] = {'current_account': acc_name}
     await client.disconnect()
-    await bot.send_message(chat_id, f"✅ Вошёл как @{me.username or me.first_name}!", reply_markup=admin_panel())
+    await bot.send_message(chat_id, f"✅ Вошёл как @{me.username or me.first_name}!", reply_markup=main_menu(uid))
 
 async def process_code(uid, chat_id, msg_id, state):
     code = state.get('entered_code', '')
@@ -178,6 +175,9 @@ async def admin_callback(call):
     data = call.data
     cid, mid = call.message.chat.id, call.message.message_id
     db = load_db()
+    if data == 'adm_back':
+        await bot.edit_message_text('👑 Админ-панель:', cid, mid, reply_markup=admin_panel())
+        return
     if data == 'adm_users':
         users = list(db.items())
         text = '👥 Все юзеры:\n\n'
@@ -187,7 +187,7 @@ async def admin_callback(call):
             frozen = '❄️' if u.get('frozen') else ''
             blocked = '🚫' if u.get('blocked') else ''
             text += f"ID:{uid2} {frozen}{blocked} | {acc_names}\n"
-        await bot.edit_message_text(text, cid, mid, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='back_main')]]))
+        await bot.edit_message_text(text, cid, mid, reply_markup=admin_panel())
     elif data == 'adm_find':
         user_states[uid] = {'step': 'adm_find_id'}
         await bot.edit_message_text("🔍 Введите ID юзера:", cid, mid, reply_markup=back_keyboard())
@@ -221,7 +221,7 @@ async def admin_callback(call):
         frozen = sum(1 for u in db.values() if u.get('frozen'))
         blocked = sum(1 for u in db.values() if u.get('blocked'))
         text = f"📊 Статистика:\n👥 Юзеров: {total}\n🔑 Аккаунтов: {accs}\n🚀 Активных: {active}\n❄️ Заморожено: {frozen}\n🚫 Заблокировано: {blocked}"
-        await bot.edit_message_text(text, cid, mid, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='back_main')]]))
+        await bot.edit_message_text(text, cid, mid, reply_markup=admin_panel())
     elif data == 'adm_export':
         export = json.dumps(db, indent=2, ensure_ascii=False)
         await bot.send_document(cid, export.encode(), visible_file_name='db_export.json', caption='💾 База данных')
@@ -241,7 +241,7 @@ async def register(msg):
          InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{uid}")]
     ])
     await bot.send_message(ADMIN_ID, f"🔔 Новый юзер!\n👤 @{msg.from_user.username or 'нет'}\n🆔 ID: {uid}", reply_markup=kb)
-    await bot.send_message(msg.chat.id, "💎 <b>Доступ к боту платный!</b>\n\nДля покупки обращайтесь к @cf_mz\n\n🔥 <b>Сейчас действуют скидки!</b>\n💰 Принимаем оплату в любых валютах!\n\n⏳ Ваш запрос также отправлен администратору.")
+    await bot.send_message(msg.chat.id, REGISTER_TEXT)
 
 @bot.callback_query_handler(func=lambda call: True)
 async def callback(call):
@@ -301,13 +301,12 @@ async def callback(call):
             if uid != ADMIN_ID: return
             global_stopped = True
             for k in list(active_tasks.keys()): del active_tasks[k]
-            await bot.edit_message_text("🛑 Бот остановлен", cid, mid, reply_markup=admin_panel())
+            await bot.edit_message_text("🛑 Бот остановлен", cid, mid, reply_markup=main_menu(uid))
         elif data == 'global_resume':
             if uid != ADMIN_ID: return
             global_stopped = False
             await bot.edit_message_text("✅ Бот работает", cid, mid, reply_markup=main_menu(uid))
         elif data == 'login_phone':
-            pass  # безлимит
             user_states[uid] = {'step': 'waiting_phone', 'acc_num': len(get_accounts(uid)) + 1}
             await bot.edit_message_text("📱 Номер (с +):", cid, mid, reply_markup=back_keyboard())
         elif data.startswith('c') and len(data)==2 and data[1].isdigit():
@@ -433,7 +432,7 @@ async def text(msg):
             acc_names = ', '.join([f"@{a.get('username','?')}" for a in u.values()])
             await bot.send_message(msg.chat.id, f"🔍 Юзер {target}:\nАккаунты: {acc_names}", reply_markup=admin_panel())
         else:
-            await bot.send_message(msg.chat.id, "❌ Не найден.", reply_markup=main_menu(uid))
+            await bot.send_message(msg.chat.id, "❌ Не найден.", reply_markup=admin_panel())
         del user_states[uid]
         return
     if step in ['adm_freeze_id','adm_unfreeze_id','adm_block_id','adm_unblock_id']:
@@ -447,7 +446,7 @@ async def text(msg):
             save_db(db)
             await bot.send_message(msg.chat.id, f"✅ Юзер {target} {text}!", reply_markup=admin_panel())
         else:
-            await bot.send_message(msg.chat.id, "❌ Не найден.", reply_markup=main_menu(uid))
+            await bot.send_message(msg.chat.id, "❌ Не найден.", reply_markup=admin_panel())
         del user_states[uid]
         return
     if step in ['adm_addmoney_id','adm_removemoney_id']:
@@ -474,7 +473,7 @@ async def text(msg):
             if target in db:
                 db[target]['balance'] = max(0, db[target].get('balance',0) - amount)
                 save_db(db)
-                await bot.send_message(msg.chat.id, f"✅ Списано {amount} TON!", reply_markup=main_menu(uid))
+                await bot.send_message(msg.chat.id, f"✅ Списано {amount} TON!", reply_markup=admin_panel())
         except: await bot.send_message(msg.chat.id, "❌ Введите число!")
         del user_states[uid]
         return
@@ -487,7 +486,7 @@ async def text(msg):
                 text += f"• {n}: @{a.get('username','?')}\n"
             await bot.send_message(msg.chat.id, text, reply_markup=admin_panel())
         else:
-            await bot.send_message(msg.chat.id, "❌ Нет сессий.", reply_markup=main_menu(uid))
+            await bot.send_message(msg.chat.id, "❌ Нет сессий.", reply_markup=admin_panel())
         del user_states[uid]
         return
     if step == 'adm_delsession_id':
@@ -548,9 +547,9 @@ async def text(msg):
                     await client.connect()
                     await client.send_message(chat, text)
                     await client.disconnect()
-                    await bot.send_message(msg.chat.id, f"✅ Отправлено в {chat}!", reply_markup=main_menu(uid))
+                    await bot.send_message(msg.chat.id, f"✅ Отправлено в {chat}!", reply_markup=admin_panel())
                 except Exception as e:
-                    await bot.send_message(msg.chat.id, f"❌ {e}", reply_markup=main_menu(uid))
+                    await bot.send_message(msg.chat.id, f"❌ {e}", reply_markup=admin_panel())
         del user_states[uid]
         return
     if step=='waiting_phone':
