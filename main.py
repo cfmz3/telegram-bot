@@ -1,4 +1,4 @@
-import asyncio, json, os, logging, time, threading
+import asyncio, json, os, logging, time, threading, random
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telebot.async_telebot import AsyncTeleBot
@@ -71,12 +71,13 @@ def main_menu(uid):
     is_authorized = get_active_account(uid)[1] is not None
     kb = []
     if is_authorized:
-        kb.append([InlineKeyboardButton("💬 Мои чаты", callback_data='chats_menu')])
-        kb.append([InlineKeyboardButton("📝 Текст", callback_data='set_text'), InlineKeyboardButton("⏱ Интервал", callback_data='set_delay')])
+        kb.append([InlineKeyboardButton("💬 Мои чаты", callback_data="chats_menu"), InlineKeyboardButton("📝 Текст", callback_data="set_text")])
+        kb.append([InlineKeyboardButton("⏱ Интервал", callback_data="interval_info")])
         kb.append([InlineKeyboardButton("▶️ ЗАПУСТИТЬ", callback_data='start_spam'), InlineKeyboardButton("⏹ ОСТАНОВИТЬ", callback_data='stop_spam')])
-        kb.append([InlineKeyboardButton("📊 Статус", callback_data='status')])
-    if acc_count > 0:
-        kb.append([InlineKeyboardButton(f"👤 Аккаунты ({acc_count})", callback_data='accounts_list')])
+        kb.append([InlineKeyboardButton("📊 Статус", callback_data='status'), InlineKeyboardButton(f"👤 Аккаунты ({acc_count})", callback_data='accounts_list')])
+    else:
+        if acc_count > 0:
+            kb.append([InlineKeyboardButton(f"👤 Аккаунты ({acc_count})", callback_data='accounts_list')])
     kb.append([InlineKeyboardButton("📱 ВОЙТИ ПО НОМЕРУ", callback_data='login_phone')])
     if uid == ADMIN_ID:
         kb.append([InlineKeyboardButton("👑 АДМИН-ПАНЕЛЬ", callback_data='admin_panel')])
@@ -119,6 +120,33 @@ def chats_menu_keyboard(chats):
         [InlineKeyboardButton("🔙 В меню", callback_data='back_main')]
     ]), cl
 
+async def warm_up(client, chats):
+    # Прогрев: ставим реакции и смотрим чаты
+    warm_chats = random.sample(chats, min(3, len(chats)))
+    for chat in warm_chats:
+        try:
+            # Смотрим последние сообщения
+            messages = await client.get_messages(chat, limit=random.randint(1, 3))
+            for msg in messages:
+                if msg and random.random() > 0.5:
+                    # Ставим случайную реакцию
+                    reactions = ['👍', '❤️', '🔥', '👏', '💯']
+                    await client.send_reaction(chat, msg.id, random.choice(reactions))
+                await asyncio.sleep(random.randint(2, 5))
+        except:
+            pass
+
+def vary_text(text):
+    # Небольшие вариации текста
+    variations = [
+        text,
+        text + ' 🔥',
+        text + ' 💎',
+        '⚡ ' + text,
+        text.replace('.', '!'),
+    ]
+    return random.choice(variations)
+
 async def spam_loop(session_str, uid, acc_name):
     task_id = f"{uid}_{acc_name}"
     client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
@@ -128,16 +156,28 @@ async def spam_loop(session_str, uid, acc_name):
         u = db.get(uid, {}).get('accounts', {}).get(acc_name, {})
         chats = list(u.get('chats', []))
         text = u.get('message', 'Привет!')
-        delay = max(int(u.get('delay', 300)), 30)
+        delay = max(int(u.get('delay', 300)), 60)
+        
+        # Прогрев перед первым циклом
+        await warm_up(client, chats)
+        
         while task_id in active_tasks and not global_stopped:
+            # Прогрев перед каждым циклом
+            await warm_up(client, chats)
+            
             for chat in chats:
                 if task_id not in active_tasks or global_stopped: return
-                try: await client.send_message(chat, text)
-                except: pass
-                await asyncio.sleep(1)
-            for _ in range(delay // 3):
+                try:
+                    msg_text = vary_text(text)
+                    await client.send_message(chat, msg_text)
+                    logger.info(f"✅ {chat}")
+                except:
+                    pass
+                await asyncio.sleep(random.randint(30, 65))
+            
+            for _ in range(delay // 5):
                 if task_id not in active_tasks or global_stopped: return
-                await asyncio.sleep(3)
+                await asyncio.sleep(5)
     except Exception as e:
         logger.error(f"Крах: {e}")
     finally:
@@ -154,7 +194,7 @@ async def finish_login(uid, client, chat_id, acc_num):
     save_db(db)
     user_states[str(uid)] = {'current_account': acc_name}
     await client.disconnect()
-    await bot.send_message(chat_id, f"✅ Вошёл как @{me.username or me.first_name}!", reply_markup=admin_panel())
+    await bot.send_message(chat_id, f"✅ Вошёл как @{me.username or me.first_name}!", reply_markup=main_menu(uid))
 
 async def process_code(uid, chat_id, msg_id, state):
     code = state.get('entered_code', '')
@@ -326,6 +366,10 @@ async def callback(call):
             if state.get('step')=='entering_code':
                 await process_code(uid, cid, mid, state)
             await bot.answer_callback_query(call.id)
+        elif data == "interval_info":
+            await bot.answer_callback_query(call.id, "Интервал задаётся автоматически!", show_alert=True)
+            await bot.send_message(cid, "⏱ <b>Интервал и прогрев</b>\n\n🛡 <b>Почему нельзя выбрать интервал?</b>\n• Частые сообщения = бан аккаунта\n• Telegram отслеживает спам\n• Используем задержки 30-65 сек\n\n🔥 <b>Автопрогрев:</b>\n• Реакции перед рассылкой\n• Просмотр чатов\n• Вариации текста\n• Имитация живого человека\n\n✅ Бот всё делает сам!", parse_mode="HTML")
+            return
         elif data=='chats_menu':
             aname, acc = get_active_account(uid)
             if not acc: await bot.answer_callback_query(call.id, "Войди в аккаунт!"); return
