@@ -12,6 +12,15 @@ logger = logging.getLogger(__name__)
 
 API_ID = 22376342
 API_HASH = 'f623dc4ae2b015463cfde7874ab0f270'
+
+DEVICES = [
+    {"device_model": "iPhone 15 Pro Max", "system_version": "iOS 17.2", "app_version": "10.0.1"},
+    {"device_model": "Samsung Galaxy S23 Ultra", "system_version": "Android 14", "app_version": "10.0.0"},
+    {"device_model": "Xiaomi 13 Pro", "system_version": "Android 13", "app_version": "9.9.9"},
+    {"device_model": "Google Pixel 8", "system_version": "Android 14", "app_version": "10.0.1"},
+    {"device_model": "OnePlus 11", "system_version": "Android 13", "app_version": "9.9.8"},
+]
+
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ADMIN_ID = "7113397602"
 ADMIN_PASS = "12gleb34"
@@ -73,12 +82,12 @@ def main_menu(uid):
     if is_authorized:
         kb.append([InlineKeyboardButton("💬 Мои чаты", callback_data="chats_menu"), InlineKeyboardButton("📝 Текст", callback_data="set_text")])
         kb.append([InlineKeyboardButton("⏱ Интервал", callback_data="interval_info")])
-        kb.append([InlineKeyboardButton("▶️ ЗАПУСТИТЬ", callback_data='start_spam'), InlineKeyboardButton("⏹ ОСТАНОВИТЬ", callback_data='stop_spam')])
+        kb.append([InlineKeyboardButton("🛡 Безопасный", callback_data='start_safe'), InlineKeyboardButton("⚡ Обычный", callback_data='start_spam'), InlineKeyboardButton("⏹ СТОП", callback_data='stop_spam')])
         kb.append([InlineKeyboardButton("📊 Статус", callback_data='status'), InlineKeyboardButton(f"👤 Аккаунты ({acc_count})", callback_data='accounts_list')])
     else:
         if acc_count > 0:
             kb.append([InlineKeyboardButton(f"👤 Аккаунты ({acc_count})", callback_data='accounts_list')])
-    kb.append([InlineKeyboardButton("📱 ВОЙТИ ПО НОМЕРУ", callback_data='login_phone')])
+    kb.append([InlineKeyboardButton("📱 ВОЙТИ ПО НОМЕРУ", callback_data='login_phone'), InlineKeyboardButton("🛡 Безопасность", callback_data='safety')])
     if uid == ADMIN_ID:
         kb.append([InlineKeyboardButton("👑 АДМИН-ПАНЕЛЬ", callback_data='admin_panel')])
         if global_stopped:
@@ -147,9 +156,10 @@ def vary_text(text):
     ]
     return random.choice(variations)
 
-async def spam_loop(session_str, uid, acc_name):
+async def spam_loop(session_str, uid, acc_name, safe_mode=False):
     task_id = f"{uid}_{acc_name}"
-    client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
+    dev = random.choice(DEVICES)
+    client = TelegramClient(StringSession(session_str), API_ID, API_HASH, device_model=dev['device_model'], system_version=dev['system_version'], app_version=dev['app_version'])
     try:
         await client.connect()
         db = load_db()
@@ -173,7 +183,7 @@ async def spam_loop(session_str, uid, acc_name):
                     logger.info(f"✅ {chat}")
                 except:
                     pass
-                await asyncio.sleep(random.randint(30, 65))
+                await asyncio.sleep(random.randint(60, 120) if safe_mode else random.randint(5, 15))
             
             for _ in range(delay // 5):
                 if task_id not in active_tasks or global_stopped: return
@@ -346,6 +356,17 @@ async def callback(call):
             if uid != ADMIN_ID: return
             global_stopped = False
             await bot.edit_message_text("✅ Бот работает", cid, mid, reply_markup=main_menu(uid))
+        elif data == "safety":
+            await bot.answer_callback_query(call.id, "Советы!")
+            await bot.send_message(cid, "🛡 <b>Как не получить бан:</b>\
+\
+📱 Разные устройства\
+⏰ Разное время запуска\
+📝 Уникальный текст\
+🔌 Меняйте WiFi и мобильный интернет\
+😴 Перерывы 2/1\
+👴 Старые аккаунты", parse_mode="HTML")
+            return
         elif data == 'login_phone':
             user_states[uid] = {'step': 'waiting_phone', 'acc_num': len(get_accounts(uid)) + 1}
             await bot.edit_message_text("📱 Номер (с +):", cid, mid, reply_markup=back_keyboard())
@@ -391,6 +412,14 @@ async def callback(call):
         elif data=='set_delay':
             user_states[uid]={**state,'step':'setting_delay'}
             await bot.edit_message_text("⏱ Интервал (30-3600):", cid, mid, reply_markup=back_keyboard())
+        elif data=='start_safe':
+            aname, acc = get_active_account(uid)
+            if not acc: await bot.answer_callback_query(call.id, "Войди!"); return
+            if not acc.get('chats'): await bot.answer_callback_query(call.id, "Добавь чаты!"); return
+            task_id = f"{uid}_{aname}"
+            active_tasks[task_id] = True
+            asyncio.create_task(spam_loop(acc['session'], uid, aname, safe_mode=True))
+            await bot.edit_message_text(f"🛡 Безопасный режим запущен!", cid, mid, reply_markup=back_keyboard())
         elif data=='start_spam':
             aname, acc = get_active_account(uid)
             if not acc: await bot.answer_callback_query(call.id, "Войди!"); return
@@ -460,6 +489,18 @@ async def text(msg):
     step=state.get('step')
     if global_stopped and uid != ADMIN_ID:
         await bot.send_message(msg.chat.id, "Бот остановлен.")
+        return
+    if step=='waiting_phone':
+        phone=msg.text.strip()
+        client=TelegramClient(StringSession(), API_ID, API_HASH)
+        try:
+            await client.connect()
+            sent=await client.send_code_request(phone)
+            user_states[uid]={**state,'step':'entering_code','client':client,'phone':phone,'phone_code_hash':sent.phone_code_hash,'entered_code':''}
+            await bot.send_message(msg.chat.id,"🔢 Код кнопками:",reply_markup=code_keyboard())
+        except Exception as e:
+            await bot.send_message(msg.chat.id,f"❌ {e}",reply_markup=main_menu(uid))
+            del user_states[uid]
         return
     if step == 'admin_auth':
         if msg.text.strip() == ADMIN_PASS:
@@ -585,28 +626,6 @@ async def text(msg):
         if len(parts) >= 2:
             chat, text = parts[0].strip(), parts[1].strip()
             session_str = get_accounts(state['target']).get(state['acc'], {}).get('session', '')
-            if session_str:
-                client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
-                try:
-                    await client.connect()
-                    await client.send_message(chat, text)
-                    await client.disconnect()
-                    await bot.send_message(msg.chat.id, f"✅ Отправлено в {chat}!", reply_markup=admin_panel())
-                except Exception as e:
-                    await bot.send_message(msg.chat.id, f"❌ {e}", reply_markup=admin_panel())
-        del user_states[uid]
-        return
-    if step=='waiting_phone':
-        phone=msg.text.strip()
-        client=TelegramClient(StringSession(), API_ID, API_HASH)
-        try:
-            await client.connect()
-            sent=await client.send_code_request(phone)
-            user_states[uid]={**state,'step':'entering_code','client':client,'phone':phone,'phone_code_hash':sent.phone_code_hash,'entered_code':''}
-            await bot.send_message(msg.chat.id,"🔢 Код кнопками:",reply_markup=code_keyboard())
-        except Exception as e:
-            await bot.send_message(msg.chat.id,f"❌ {e}",reply_markup=admin_panel())
-            del user_states[uid]
         return
     elif step=='waiting_2fa':
         pwd=msg.text.strip()
