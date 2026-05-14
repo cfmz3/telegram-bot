@@ -68,10 +68,9 @@ def get_active_account(uid):
     accs = get_accounts(uid)
     if not accs: return None, None
     current = user_states.get(str(uid), {}).get('current_account')
-    if current and current in accs: return current, accs[current]
-    first_name = list(accs.keys())[0]
-    user_states[str(uid)] = {'current_account': first_name}
-    return first_name, accs[first_name]
+    if current and current in accs:
+        return current, accs[current]
+    return None, None
 
 def main_menu(uid):
     global global_stopped
@@ -204,7 +203,8 @@ async def finish_login(uid, client, chat_id, acc_num):
     save_db(db)
     user_states[str(uid)] = {'current_account': acc_name}
     await client.disconnect()
-    await bot.send_message(chat_id, f"✅ Вошёл как @{me.username or me.first_name}!", reply_markup=main_menu(uid))
+    user_states[str(uid)] = {'current_account': acc_name}
+    await bot.send_message(chat_id, f"✅ Вошёл как @{me.username or me.first_name}! Аккаунт активирован.", reply_markup=main_menu(uid))
 
 async def process_code(uid, chat_id, msg_id, state):
     code = state.get('entered_code', '')
