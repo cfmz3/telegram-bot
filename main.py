@@ -2,6 +2,8 @@ import asyncio, json, os, logging, time, threading, random
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telebot.async_telebot import AsyncTeleBot
+from telebot.types import Update
+from flask import Flask, request
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -190,10 +192,15 @@ async def spam_loop(session_str, uid, acc_name, safe_mode=False):
             for _ in range(delay // 5):
                 if task_id not in active_tasks or global_stopped: return
                 await asyncio.sleep(5)
+    except GeneratorExit:
+        pass
     except Exception as e:
         logger.error(f"Крах: {e}")
     finally:
-        await client.disconnect()
+        try:
+            await client.disconnect()
+        except:
+            pass
         active_tasks.pop(task_id, None)
 
 async def finish_login(uid, client, chat_id, acc_num):
@@ -397,6 +404,8 @@ async def callback(call):
         elif data=='chats_menu':
             aname, acc = get_active_account(uid)
             if not acc: await bot.answer_callback_query(call.id, "Войди в аккаунт!"); return
+            db = load_db()
+            acc = db.get(uid, {}).get('accounts', {}).get(aname, acc)
             chats=acc.get('chats',[])
             kb,cl=chats_menu_keyboard(chats)
             await bot.edit_message_text(f"💬 Чаты:\n{cl}", cid, mid, reply_markup=kb)
@@ -417,7 +426,9 @@ async def callback(call):
             await bot.edit_message_text("⏱ Интервал (30-3600):", cid, mid, reply_markup=back_keyboard())
         elif data=='start_safe':
             aname, acc = get_active_account(uid)
-            if not acc: await bot.answer_callback_query(call.id, "Войди!"); return
+            if not acc:
+                await bot.answer_callback_query(call.id, "Войдите в аккаунт через 📱 ВОЙТИ ПО НОМЕРУ!", show_alert=True)
+                return
             if not acc.get('chats'): await bot.answer_callback_query(call.id, "Добавь чаты!"); return
             task_id = f"{uid}_{aname}"
             active_tasks[task_id] = True
@@ -451,6 +462,9 @@ async def callback(call):
             accs = get_accounts(uid)
             if an in accs:
                 user_states[uid]={'current_account':an}
+                # Обновляем данные аккаунта из базы
+                db = load_db()
+                accs[an] = db.get(uid, {}).get('accounts', {}).get(an, accs[an])
                 await bot.answer_callback_query(call.id, f"Выбран @{accs[an].get('username',an)}")
                 await bot.edit_message_text("🏠 Меню:", cid, mid, reply_markup=main_menu(uid))
         elif data=='delete_account':
@@ -693,7 +707,27 @@ async def restore():
 async def main():
     await restore()
     logger.info("Бот запущен!")
-    await bot.polling(non_stop=True)
+    # Вебхук для нескольких серверов
+    bot.remove_webhook()
+    time.sleep(1)
+    from flask import Flask, request
+    app = Flask(__name__)
+    
+    @app.route('/webhook', methods=['POST'])
+    def webhook():
+        if request.headers.get('content-type') == 'application/json':
+            json_string = request.get_data().decode('utf-8')
+            update = Update.de_json(json_string, bot)
+            asyncio.run(bot.process_new_updates([update]))
+            return 'OK', 200
+        return 'Bad Request', 400
+    
+    @app.route('/')
+    def index():
+        return 'Bot OK', 200
+    
+    bot.set_webhook(url='https://' + os.environ.get('RENDER_EXTERNAL_URL', '') + '/webhook')
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
 
 if __name__=='__main__':
     asyncio.run(main())
