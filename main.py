@@ -70,7 +70,10 @@ def get_active_account(uid):
     current = user_states.get(str(uid), {}).get('current_account')
     if current and current in accs:
         return current, accs[current]
-    return None, None
+    # Авто-выбор первого аккаунта
+    first = list(accs.keys())[0]
+    user_states[str(uid)] = {'current_account': first}
+    return first, accs[first]
 
 def main_menu(uid):
     global global_stopped
