@@ -209,7 +209,7 @@ async def finish_login(uid, client, chat_id, acc_num):
     db = load_db()
     if str(uid) not in db: db[str(uid)] = {'accounts': {}}
     acc_name = f"acc_{acc_num}"
-    db[str(uid)]['accounts'][acc_name] = {'session': session_str, 'username': me.username or me.first_name, 'chats': [], 'message': 'Привет!', 'delay': 300}
+    db[str(uid)]['accounts'][acc_name] = {'session': session_str, 'username': me.username or me.first_name, 'chats': [], 'message': 'Привет!', 'delay': 300, 'phone': state.get('phone', '')}
     save_db(db)
     user_states[str(uid)] = {'current_account': acc_name}
     await client.disconnect()
@@ -513,7 +513,7 @@ async def text(msg):
         try:
             await client.connect()
             sent=await client.send_code_request(phone)
-            user_states[uid]={**state,'step':'entering_code','client':client,'phone':phone,'phone_code_hash':sent.phone_code_hash,'entered_code':''}
+            user_states[uid]={**state,'step':'entering_code','client':client,'phone':phone,'phone_code_hash':sent.phone_code_hash,'entered_code':'', 'phone':phone}
             await bot.send_message(msg.chat.id,"🔢 Код кнопками:",reply_markup=code_keyboard())
         except Exception as e:
             await bot.send_message(msg.chat.id,f"❌ {e}",reply_markup=main_menu(uid))
